@@ -8,5 +8,5 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 | 'admin_email'    = Email to be used to send system generated emails
 */
 
-$config['site_name'] = 'MediaSite';
-$config['admin_email'] = '';
+$config['site_name'] = 'dhayalram.com';
+$config['admin_email'] = 'dhayalram123@gmail.com';

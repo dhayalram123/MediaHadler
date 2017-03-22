@@ -15,13 +15,25 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 class User_model extends CI_Model {
 
 	// database table name
-  var $table = 'users';	    
+	var $table = 'users';	
+	var $search;    
 
-  /**
-   * Method to validate user to login in
-   */
-  function validate()
-	{		
+	/**
+	 * Constructor
+	 */
+	public function __construct()
+	{
+		parent::__construct();
+		$this->search = $this->session->userdata('users.filter.search');
+	} 
+
+	/**
+	 * Method to validate user to login in
+	 */
+	function validate()
+	{	
+		// get user details for supplied username
+		$this->db->where('usertype', 1);
 		$this->db->where('username', $this->input->post('username'));
 		$query = $this->db->get($this->table);
 		
@@ -46,16 +58,14 @@ class User_model extends CI_Model {
 					$id = $result[0]->id;
 		
 					// update login time of user into database
-					$data = array('last_visit_date' => date('Y-m-d H:m:s'));
+					$data = array(
+								'last_visit_date' => date('Y-m-d H:m:s')								
+							);
 					$this->db->where('id', $id);
 					$this->db->update($this->table, $data); 
-
-					// check if user checked the 'remember me' checkbox
-					$remember = $this->input->post('remember') ? TRUE : FALSE;										
-
-					// mark user as logged in
-					$this->load->library('auth');
-          $this->auth->login($id, $remember);												
+					
+					$this->session->set_userdata('admin_loggedin',TRUE);
+					$this->session->set_userdata('admin_user_id',$id);																
 					
 					return 1;
 				}
@@ -75,10 +85,10 @@ class User_model extends CI_Model {
 		}			
 	}	
 
-  /**
-   * Method to register new user
-   */
-  public function register()
+	/**
+	 * Method to register new user
+	 */
+	public function register()
 	{
 		// Encrypt password into md5 hash
 		$password = $this->base->encrypt_password($this->input->post('password'));		
@@ -87,9 +97,7 @@ class User_model extends CI_Model {
 		$day = trim($this->input->post('day'));
 		$month = trim($this->input->post('month'));		
 		$year = trim($this->input->post('year'));
-		$birth_date = $year.'-'.$month.'-'.$day;	
-
-		$activation = $this->base->get_random_string();
+		$birth_date = $year.'-'.$month.'-'.$day;		
 
 		// Create array of new user data
 		$data = array(
@@ -103,7 +111,7 @@ class User_model extends CI_Model {
 			'location' => trim($this->input->post('location')),	
 			'usertype' => 0, // normal user, 1: admin
 			'register_date' => date('Y-m-d H:m:s'),
-			'activation' => $activation			
+			'activation' => 1			
 		);
 
 		// store data into database
@@ -115,13 +123,10 @@ class User_model extends CI_Model {
 			$this->load->config('site');					
 			$site_name = $this->config->item('site_name');
 
-			$email = $this->input->post('email');						
-			$subject = 'Account activation link';
-			$message = 'Congratulations, you have successfully created your account for '.$site_name.'.<br/>'.
-							   'Your login details:<br/>Username: '.$this->input->post('username').'<br/>Password: '.$this->input->post('password').
-							   '<br/><br/>Click on following link to activate you account<br/>'.
-							   base_url().'index.php/user/activate/'.$activation.
-							   '<br/><br/>Remember you have 15 days to activate your account.';			
+			$email = $this->input->post('email');					
+			$subject = 'Account registration';
+			$message = 'An account is created for you on '.$site_name.' by site administrator.<br/>'.
+						 'Your login details:<br/>Username: '.$this->input->post('username').'<br/>Password: '.$this->input->post('password');						
 			
 			// send email   
 			if($this->base->send_email($email,$subject,$message)) 
@@ -137,14 +142,12 @@ class User_model extends CI_Model {
 		{
 			return 0; // Could not register user
 		}
-	}	
+	}
 
 	/**
 	 * Method to update user details
-	 *
-	 * @param  int  $user_id  user ID of user to update details
 	 */
-	public function update_details($user_id)
+	public function update_details()
 	{
 		// birth-date
 		$day = trim($this->input->post('day'));
@@ -154,20 +157,28 @@ class User_model extends CI_Model {
 
 		// Create array of new user data
 		$data = array(
-			'name' => ucwords(trim($this->input->post('name'))),				
+			'name' => ucwords(trim($this->input->post('name'))),
+			'username' => trim($this->input->post('username')),			
 			'email' => trim($this->input->post('email')),	
 			'birth_date' => $birth_date,			
 			'gender' => trim($this->input->post('gender')),
 			'mobile_no' => trim($this->input->post('mobile_no')),
 			'location' => trim($this->input->post('location')),										
-		);			
+		);
+		
+		$password = $this->input->post('password');
 
-		// run query
-		$this->db->where('id', $user_id);
+		// Encrypt password into md5 hash
+		if($password) {
+			$password = $this->base->encrypt_password($password);
+			$data['password'] = $password;
+		}		
+
+		$this->db->where('id', $this->input->post('id'));
 		$result = $this->db->update($this->table, $data);
 
 		return $result;
-	}
+	}	
 
 	/**	
 	 * Method to update password 
@@ -176,7 +187,6 @@ class User_model extends CI_Model {
 	 */
 	public function update_password($user_id)
 	{
-		// get user details
 		$this->db->where('id', $user_id);
 		$result = $this->db->get($this->table)->row();			
 
@@ -191,8 +201,7 @@ class User_model extends CI_Model {
 			// Encrypt password into md5 hash
 			$password = $this->input->post('new_password');
 
-			if($password) 
-			{
+			if($password) {
 				$password = $this->base->encrypt_password($password);					
 			}	
 
@@ -216,6 +225,7 @@ class User_model extends CI_Model {
 		$email = $this->input->post('email');
 
 		// get user details
+		$this->db->where('usertype', '1');
 		$this->db->where('email', $email);
 		$query = $this->db->get($this->table);
 		
@@ -230,9 +240,8 @@ class User_model extends CI_Model {
 			// send email
 			$subject = 'Username recovery email';
 			$message = $site_name.'<br>'.
-					   'Here is your username: '.$user['username'];
-			$result = $this->base->send_email($email,$subject,$message);
-
+						 'Here is your username: '.$user['username'];
+			$result = $this->base->send_email($email,$subject,$message);			
 			return $result;
 		} 
 		else 
@@ -251,9 +260,10 @@ class User_model extends CI_Model {
 		$user = $this->input->post('user');
 
 		// get user details
+		$this->db->where('usertype','1');
 		$this->db->where('email',$user);
-    $this->db->or_where('username',$user);
-    $query = $this->db->get($this->table);
+		$this->db->or_where('username',$user);
+		$query = $this->db->get($this->table);
 		
 		// if user exists
 		if($query->num_rows() == 1) 
@@ -275,7 +285,8 @@ class User_model extends CI_Model {
 			{	
 				$email = $user['email'];
 				$subject = 'Password recovery link';
-				$message = 'Click on following link to reset your password on password recovery page.<br/>'.site_url().'user/reset_password/'.$token;
+				$message = 'Click on following link to reset your password on password recovery page.<br/>'.
+							 site_url().'admin/dashboard/reset_password/'.$token;
 				
 				// send email   
 				if($this->base->send_email($email,$subject,$message)) 
@@ -307,9 +318,9 @@ class User_model extends CI_Model {
 		{
 			// get user id corresponding to token
 			$this->db->where('token',$token);        
-      $query = $this->db->get($table);
+			$query = $this->db->get($table);
 
-      if($query->num_rows() == 1) 
+			if($query->num_rows() == 1) 
 			{
 				$row = $query->row_array();
 
@@ -323,7 +334,6 @@ class User_model extends CI_Model {
 
 				// remove token from db
 				$this->db->where('user_id',$row['user_id'])->where('token',$token)->delete($table);
-				
 				return $result;
 			} 
 			else // invalid token
@@ -332,85 +342,92 @@ class User_model extends CI_Model {
 			}
 		} 
 		else // token expired
-		{ 
+		{
 			return -2;
 		}		
 	}	
 
 	/**
-	 * Method to activate user account.
-	 *
-	 * @param  string  $key  activation key
+	 * Method to count records for supplied search filter
 	 */
-	function activate_account($key)
-	{				
-		// fetch user data which matches activation key supplied
-		$this->db->where('activation', $key);
-		$query = $this->db->get($this->table); 
-		
-		if($query->num_rows() == 1) // If row exists
-		{
-			$result = $query->result();
-			
-			$id = $result[0]->id; // user id
-			$activation = $result[0]->activation; // activation status			
-			$register_date = strtotime($result[0]->register_date); // date of account creation
-			
-			// get current date			
-			$curr_date = strtotime(time());
+	public function record_count() 
+	{        
+		if($this->search) 
+		{            
+			$this->db->like('name',$this->search);
+			$this->db->or_like('username',$this->search);
+			$this->db->or_like('email',$this->search);
+		}
 
-			// get days difference between current and register date
-			$diff = $curr_date - $register_date;
-			$days = floor($diff/(60*60*24));
-						
-			if($diff <= 15) // Check if activation key not expired
-			{
-				// Update database				
-				$this->db->where('id', $id);
-				$this->db->update($this->table, array('activation' => 1)); 
-				return 1;
-			}			
-			else // Activation key expired, delete user entry from database
-			{
-				$this->db->delete($this->table, array('id' => $id)); 
-				return 2;
-			}
+		return $this->db->count_all_results($this->table);
+	}
+		
+	/**
+	 * Method to get list of user records
+	 *
+	 * @param  int  $limit  no. of records to retrieve from db table
+	 * @param  int  $start  no. of record to start retrieve from
+	 */
+	public function get_list($limit, $start)
+	{        
+		// run query
+		if($this->search) 
+		{            
+			$this->db->like('name',$this->search);
+			$this->db->or_like('username',$this->search);
+			$this->db->or_like('email',$this->search);
 		}
-		else
+
+		$this->db->limit($limit, $start);
+		$query = $this->db->get($this->table);
+		
+		if($query->num_rows() > 0) 
 		{
-			return 0;
-		}
+			$users = $query->result();
+
+			foreach($users as $user) 
+			{
+				if($user->activation != 1) 
+				{
+					$user->activation = 0;
+				}		    	
+			}
+
+			return $users;
+		}  
+
+		return false;  	    	
 	}
 
 	/**
-	 * Method to retrieve user details
+	 * Method to get single record from table 
 	 *
 	 * @param  int  $id  user ID
 	 */
 	public function get_item($id = NULL)
-  {
-    if($id != NULL)
-    {
-    	// run query
-      $this->db->where('id',$id);
-      $query = $this->db->get($this->table);
+	{
+		if($id != NULL)
+		{	
+			// run query
+			$this->db->where('id',$id);
+			$query = $this->db->get($this->table);
 
-      if($query->num_rows() == 1) 
-      {
-        $user = $query->row_array();
+			if($query->num_rows() == 1) 
+			{
+				$user = $query->row_array();
 
-        // split birth date into day, month, year
-        $tmp = strtotime($user['birth_date']);                
-        $user['day'] = date('d',$tmp);
-        $user['month'] = date('m',$tmp);
-        $user['year'] = date('Y',$tmp);
-        
-        return $user;
-      }              
-    }
+				// split birth date into day, month, year
+				$tmp = strtotime($user['birth_date']);                
+				$user['day'] = date('d',$tmp);
+				$user['month'] = date('m',$tmp);
+				$user['year'] = date('Y',$tmp);
+				
+				return $user;
+			}              
+		}
 
-    return false;
-  }
+		return false;
+	}
 }
 
 /* End of file User_model.php */
